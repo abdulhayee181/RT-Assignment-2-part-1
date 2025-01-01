@@ -28,28 +28,6 @@ The nodes and services are designed to allow a robot to move to a specified targ
 
 ---
 
-## Nodes and Functionality
-
-### (a) Action Client Node
-
-- **Node Name**: `Node_A.py`
-- **Description**: 
-    - This node acts as an action client in the ROS action framework.
-    - The action client sends a target `(x, y)` to an action server to command the robot to move towards a specific location.
-    - The node listens for feedback from the action server to monitor the robot's progress and status. 
-    - It can also cancel the target if necessary.
-    - Additionally, it subscribes to the `/odom` topic to obtain the robot's position and velocity, which are then published as a custom message (`RobotPosition.msg`).
-
-### (b) Service Node
-
-- **Node Name**: `go_to_point_service.py`
-- **Description**:
-    - This node implements a ROS service.
-    - When called, the service returns the coordinates of the last target that was sent by the action client. 
-    - This allows users to query the system for the current target coordinates.
-
----
-
 ## Custom Message
 
 - **Message Name**: `RobotPosition.msg`
@@ -67,18 +45,97 @@ The nodes and services are designed to allow a robot to move to a specified targ
 
 ## How to Run the Code
 
-Follow these steps to build and run the project:
+### 1. **Install Dependencies**
+- **Description**:  
+    Ensure that the required ROS dependencies are installed for running the simulation and nodes.  
+    Use the following command to install the necessary packages:
 
-### 1. Install Dependencies
+    ```bash
+    sudo apt-get install ros-<distro>-actionlib ros-<distro>-rospy ros-<distro>-geometry-msgs ros-<distro>-std-msgs gazebo_ros_pkgs
+    ```
 
-Before running the simulation, ensure that you have the necessary ROS dependencies installed. Use the following commands to install the required packages:
+    Replace `<distro>` with your specific ROS distribution (e.g., `melodic`, `noetic`).
 
+### 2. **Build the Package**
+- **Description**:  
+    After installing the dependencies, build the package within your ROS workspace.  
+    Navigate to the root directory of your workspace (`catkin_ws`) and build the package:
 
-sudo apt-get install ros-<distro>-actionlib ros-<distro>-rospy ros-<distro>-geometry-msgs ros-<distro>-std-msgs gazebo_ros_pkgs
-Make sure to replace <distro> with your specific ROS distribution (e.g., melodic, noetic).
+    ```bash
+    cd ~/catkin_ws
+    catkin_make
+    ```
 
-## 2. Build the Package
-Navigate to the root directory of your ROS workspace (catkin_ws) and build the package using the following commands:
+### 3. **Source the Workspace**
+- **Description**:  
+    Before running the nodes, source the workspace to allow ROS to recognize the built packages:
 
-cd ~/catkin_ws
-catkin_make
+    ```bash
+    source devel/setup.bash
+    ```
+
+### 4. **Run the Simulation and Nodes**
+- **Description**:  
+    You are now ready to launch the simulation and nodes.  
+    Use the following command to start the system with the action client, action server, and relevant services:
+
+    ```bash
+    roslaunch assignment_2_2024 assignment2.launch
+    ```
+
+    This will launch the robot simulation along with the action client (`Node_A.py`), the action server, and the relevant services.
+
+- **Alternative Launch File**:  
+    To launch the simulation with a specific world and configuration, use:
+
+    ```bash
+    roslaunch assignment_2_2024 sim_w1.launch
+    ```
+
+### 5. **Test the Service**
+- **Description**:  
+    Once the system is running, you can test the service that returns the last target coordinates sent by the action client.  
+    Use the following `rosservice` command:
+
+    ```bash
+    rosservice call /get_last_target
+    ```
+
+    This will return the coordinates of the last target sent by the action client.
+
+### 6. **Visualize in RViz**
+- **Description**:  
+    You can visualize the robot's movement and status in RViz.  
+    Launch the RViz configuration file provided in the `config/` directory to visualize the simulation:
+
+    ```bash
+    roslaunch assignment_2_2024 assignment1.launch
+    ```
+
+    This will open RViz with the default configuration to view the robot’s movement and simulation.
+
+---
+
+## Node and Functionality
+
+### (a) **Action Client Node**
+- **Node Name**: `Node_A.py`
+- **Description**:  
+    - This node implements the action client.
+    - It allows the user to set a target `(x, y)` or cancel the target.
+    - The node sends the target to the action server and listens for feedback on the robot’s progress.
+    - It also publishes the robot's position and velocity as a custom message (`RobotPosition.msg`).
+
+- **Feedback/Status**:  
+    The action client listens to feedback from the action server to know when the target has been reached.
+
+### (b) **Service Node**
+- **Node Name**: `go_to_point_service.py`
+- **Description**:  
+    This service node responds with the coordinates of the last target sent by the user.  
+    It provides the target coordinates to any other nodes that query it.
+
+---
+
+## Conclusion
+This assignment involves creating a simulation in ROS that integrates an action client, action server, and service nodes. The robot can move to a target `(x, y)` and provide real-time updates on its status. The service node allows querying the last target sent to the robot.
