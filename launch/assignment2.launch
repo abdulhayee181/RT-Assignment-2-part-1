@@ -3,10 +3,7 @@
     <include file="$(find assignment_2_2024)/launch/sim_w1.launch" />
     <param name="des_pos_x" value= "0.0" />
     <param name="des_pos_y" value= "1.0" />
-    
-     <node pkg="assignment_2_2024" type="Node_A.py" name="Node_A" output="screen" launch-prefix= "xterm -hold -e" />
-    <node pkg="assignment_2_2024" type="Node_B.py" name="Node_B" output="screen" launch-prefix= "xterm -hold -e" />
-    
+    <param name="freq" type= "double" value= "1.0" />
     
     <node pkg="assignment_2_2024" type="wall_follow_service.py" name="wall_follower" />
     <node pkg="assignment_2_2024" type="go_to_point_service.py" name="go_to_point"  />
