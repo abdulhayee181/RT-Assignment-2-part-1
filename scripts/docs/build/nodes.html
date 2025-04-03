@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+
+<html lang="English" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Nodes &#8212; Assignment_documentation 1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=cd5f4460"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Services" href="services.html" />
+    <link rel="prev" title="Robot Simulation Assignment Modules" href="modules.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="nodes">
+<h1>Nodes<a class="headerlink" href="#nodes" title="Link to this heading">¶</a></h1>
+<section id="node-a-action-client">
+<h2>Node A - Action Client<a class="headerlink" href="#node-a-action-client" title="Link to this heading">¶</a></h2>
+<section id="description">
+<h3>Description:<a class="headerlink" href="#description" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p>Provides interactive interface for setting goals</p></li>
+<li><p>Publishes robot position/velocity as custom message</p></li>
+<li><p>Handles goal cancellation</p></li>
+<li><p>Displays real-time feedback from action server</p></li>
+</ul>
+<p><strong>File</strong>: <code class="docutils literal notranslate"><span class="pre">Node_A.py</span></code></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#! /usr/bin/env python</span>
+
+import<span class="w"> </span>rospy
+import<span class="w"> </span>actionlib
+import<span class="w"> </span>actionlib.msg
+import<span class="w"> </span>assignment_2_2024
+import<span class="w"> </span>assignment_2_2024.msg
+
+from<span class="w"> </span>std_srvs.srv<span class="w"> </span>import<span class="w"> </span>*
+from<span class="w"> </span>geometry_msgs.msg<span class="w"> </span>import<span class="w"> </span>Point,<span class="w"> </span>Pose,<span class="w"> </span>Twist
+from<span class="w"> </span>nav_msgs.msg<span class="w"> </span>import<span class="w"> </span>Odometry
+from<span class="w"> </span>assignment_2_2024.msg<span class="w"> </span>import<span class="w"> </span>RobotPosition
+from<span class="w"> </span>actionlib_msgs.msg<span class="w"> </span>import<span class="w"> </span>GoalStatus
+
+def<span class="w"> </span>callback<span class="o">(</span>msg<span class="o">)</span>:
+<span class="w">    </span>global<span class="w"> </span>pub
+
+<span class="w">    </span><span class="c1"># Get position and linear velocity from msg</span>
+<span class="w">    </span><span class="nv">position</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>msg.pose.pose.position
+<span class="w">    </span><span class="nv">velocity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>msg.twist.twist.linear
+
+<span class="w">    </span><span class="c1"># Create custom msg</span>
+<span class="w">    </span><span class="nv">robot_info</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>RobotPosition<span class="o">()</span>
+<span class="w">    </span>robot_info.x<span class="w"> </span><span class="o">=</span><span class="w"> </span>position.x
+<span class="w">    </span>robot_info.y<span class="w"> </span><span class="o">=</span><span class="w"> </span>position.y
+<span class="w">    </span>robot_info.vel_x<span class="w"> </span><span class="o">=</span><span class="w"> </span>velocity.x
+<span class="w">    </span>robot_info.vel_y<span class="w"> </span><span class="o">=</span><span class="w"> </span>velocity.y
+
+<span class="w">    </span><span class="c1"># Publish robot_info</span>
+<span class="w">    </span>pub.publish<span class="o">(</span>robot_info<span class="o">)</span>
+
+def<span class="w"> </span>feedback_callback<span class="o">(</span>feedback<span class="o">)</span>:
+<span class="w">    </span><span class="c1"># This function is called to process feedback from the action server</span>
+<span class="w">    </span>print<span class="o">(</span>f<span class="s2">&quot;Feedback: Robot is at position x={feedback.current_pose.pose.position.x}, y={feedback.current_pose.pose.position.y}&quot;</span><span class="o">)</span>
+
+def<span class="w"> </span>client<span class="o">()</span>:
+<span class="w">    </span><span class="c1"># Creates the action client</span>
+<span class="w">    </span><span class="nv">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>actionlib.SimpleActionClient<span class="o">(</span><span class="s1">&#39;/reaching_goal&#39;</span>,<span class="w"> </span>assignment_2_2024.msg.PlanningAction<span class="o">)</span>
+
+<span class="w">    </span><span class="c1"># Wait for the server to be ready</span>
+<span class="w">    </span>client.wait_for_server<span class="o">()</span>
+
+<span class="w">    </span>print<span class="o">(</span><span class="s2">&quot;Welcome to the Robot Control Interface \n&quot;</span><span class="o">)</span>
+
+<span class="w">    </span><span class="k">while</span><span class="w"> </span>not<span class="w"> </span>rospy.is_shutdown<span class="o">()</span>:
+
+<span class="w">        </span><span class="c1"># User interface</span>
+<span class="w">        </span>print<span class="o">(</span><span class="s2">&quot;Insert the desired position you want to reach \n&quot;</span><span class="o">)</span>
+
+<span class="w">        </span><span class="c1"># Check whether the input is a number or not</span>
+<span class="w">        </span>try:
+<span class="w">            </span><span class="nv">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>float<span class="o">(</span>input<span class="o">(</span><span class="s2">&quot;x: &quot;</span><span class="o">))</span>
+<span class="w">            </span><span class="nv">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>float<span class="o">(</span>input<span class="o">(</span><span class="s2">&quot;y: &quot;</span><span class="o">))</span>
+
+<span class="w">            </span>print<span class="o">(</span><span class="s2">&quot;\n&quot;</span><span class="o">)</span>
+
+<span class="w">            </span><span class="c1"># Check the inserted coordinates, such that the robot doesn&#39;t get stuck on a wall</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span>-9.0<span class="w"> </span>&lt;<span class="o">=</span><span class="w"> </span>x<span class="w"> </span>&lt;<span class="o">=</span><span class="w"> </span><span class="m">9</span>.0<span class="w"> </span>and<span class="w"> </span>-9.0<span class="w"> </span>&lt;<span class="o">=</span><span class="w"> </span>y<span class="w"> </span>&lt;<span class="o">=</span><span class="w"> </span><span class="m">9</span>.0:
+
+<span class="w">                </span><span class="c1"># Set the goal position with the previously entered coordinates</span>
+<span class="w">                </span><span class="nv">goal</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>assignment_2_2024.msg.PlanningGoal<span class="o">()</span>
+<span class="w">                </span>goal.target_pose.pose.position.x<span class="w"> </span><span class="o">=</span><span class="w"> </span>x
+<span class="w">                </span>goal.target_pose.pose.position.y<span class="w"> </span><span class="o">=</span><span class="w"> </span>y
+
+<span class="w">                </span><span class="c1"># Send the goal to the action server with feedback</span>
+<span class="w">                </span>client.send_goal<span class="o">(</span>goal,<span class="w"> </span><span class="nv">feedback_cb</span><span class="o">=</span>feedback_callback<span class="o">)</span>
+
+<span class="w">                </span>print<span class="o">(</span><span class="s2">&quot;The goal coordinates have been successfully set! \n&quot;</span><span class="o">)</span>
+
+<span class="w">                </span><span class="nv">cancel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>input<span class="o">(</span><span class="s2">&quot;Enter &#39;c&#39; to cancel the goal, or press &#39;enter&#39; to set the next goal: \n&quot;</span><span class="o">)</span>
+
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="nv">cancel</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s1">&#39;c&#39;</span>:
+<span class="w">                    </span><span class="c1"># Cancel goal</span>
+<span class="w">                    </span>client.cancel_goal<span class="o">()</span>
+<span class="w">                    </span>print<span class="o">(</span><span class="s2">&quot;The goal was successfully cancelled! \n&quot;</span><span class="o">)</span>
+
+<span class="w">                </span><span class="c1"># Wait for result and check the status</span>
+<span class="w">                </span>client.wait_for_result<span class="o">()</span>
+<span class="w">                </span><span class="nv">state</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>client.get_state<span class="o">()</span>
+
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="nv">state</span><span class="w"> </span><span class="o">==</span><span class="w"> </span>GoalStatus.SUCCEEDED:
+<span class="w">                    </span>print<span class="o">(</span><span class="s2">&quot;The robot has successfully reached the goal! \n&quot;</span><span class="o">)</span>
+<span class="w">                </span><span class="k">elif</span><span class="w"> </span><span class="nv">state</span><span class="w"> </span><span class="o">==</span><span class="w"> </span>GoalStatus.PREEMPTED:
+<span class="w">                    </span>print<span class="o">(</span><span class="s2">&quot;The goal was preempted (cancelled by user) \n&quot;</span><span class="o">)</span>
+<span class="w">                </span><span class="k">else</span>:
+<span class="w">                    </span>print<span class="o">(</span>f<span class="s2">&quot;Goal failed with status: {state} \n&quot;</span><span class="o">)</span>
+
+<span class="w">            </span><span class="k">else</span>:
+<span class="w">                </span>print<span class="o">(</span><span class="s2">&quot;Error!! The inserted values are out of bound, retry! \n&quot;</span><span class="o">)</span>
+
+<span class="w">        </span>except<span class="w"> </span>ValueError:
+<span class="w">            </span>print<span class="o">(</span><span class="s2">&quot;Error!! The input must be a number, retry! \n&quot;</span><span class="o">)</span>
+
+def<span class="w"> </span>main<span class="o">()</span>:
+<span class="w">    </span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">    Main function</span>
+
+<span class="s2">    This function initializes the publisher and the subscriber and then calls the function client()</span>
+<span class="s2">    &quot;&quot;&quot;</span>
+
+<span class="w">    </span>global<span class="w"> </span>pub
+
+<span class="w">    </span><span class="c1"># Initialize NodeA</span>
+<span class="w">    </span>rospy.init_node<span class="o">(</span><span class="s2">&quot;NodeA&quot;</span><span class="o">)</span>
+
+<span class="w">    </span><span class="c1"># Custom msg publisher</span>
+<span class="w">    </span><span class="nv">pub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.Publisher<span class="o">(</span><span class="s2">&quot;/robot_info&quot;</span>,<span class="w"> </span>RobotPosition,<span class="w"> </span><span class="nv">queue_size</span><span class="o">=</span><span class="m">1</span><span class="o">)</span>
+
+<span class="w">    </span><span class="c1"># Subscriber to /odom, get position and speed of the robot</span>
+<span class="w">    </span><span class="nv">sub_odom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.Subscriber<span class="o">(</span><span class="s1">&#39;/odom&#39;</span>,<span class="w"> </span>Odometry,<span class="w"> </span>callback<span class="o">)</span>
+
+<span class="w">    </span><span class="c1"># Start client service</span>
+<span class="w">    </span>client<span class="o">()</span>
+
+<span class="k">if</span><span class="w"> </span><span class="nv">__name__</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s2">&quot;__main__&quot;</span>:
+<span class="w">    </span>main<span class="o">()</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="node-b-position-monitor">
+<h2>Node B - Position Monitor<a class="headerlink" href="#node-b-position-monitor" title="Link to this heading">¶</a></h2>
+<section id="id1">
+<h3>Description:<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p>Calculates distance to goal</p></li>
+<li><p>Computes average speed</p></li>
+<li><p>Configurable update frequency</p></li>
+<li><p>Subscribes to robot position updates</p></li>
+</ul>
+<p><strong>File</strong>: <code class="docutils literal notranslate"><span class="pre">Node_B.py</span></code></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#! /usr/bin/env python</span>
+
+import<span class="w"> </span>rospy
+import<span class="w"> </span>math
+from<span class="w"> </span>assignment_2_2024.msg<span class="w"> </span>import<span class="w"> </span>RobotPosition
+
+def<span class="w"> </span>callback<span class="o">(</span>msg<span class="o">)</span>:
+<span class="w">    </span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">    Callback function that calculates the distance of the robot from the goal and the average speed</span>
+<span class="s2">    based on the values retrieved from the topic /robot_info.</span>
+
+<span class="s2">    Args:</span>
+<span class="s2">        msg: custom msg of type InfoMsg containing the current coordinates and the velocity of the robot.</span>
+<span class="s2">    &quot;&quot;&quot;</span>
+<span class="w">    </span><span class="c1"># Get the goal position from parameters (with default values if not set)</span>
+<span class="w">    </span><span class="nv">desX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.get_param<span class="o">(</span><span class="s2">&quot;des_pos_x&quot;</span>,<span class="w"> </span><span class="m">0</span>.0<span class="o">)</span><span class="w">  </span><span class="c1"># Default value: 0.0</span>
+<span class="w">    </span><span class="nv">desY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.get_param<span class="o">(</span><span class="s2">&quot;des_pos_y&quot;</span>,<span class="w"> </span><span class="m">0</span>.0<span class="o">)</span><span class="w">  </span><span class="c1"># Default value: 0.0</span>
+
+<span class="w">    </span><span class="c1"># Get the robot&#39;s position and velocity from the message</span>
+<span class="w">    </span><span class="nv">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>msg.x
+<span class="w">    </span><span class="nv">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>msg.y
+<span class="w">    </span><span class="nv">velX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>msg.vel_x
+<span class="w">    </span><span class="nv">velY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>msg.vel_y
+
+<span class="w">    </span><span class="c1"># Calculate the distance between the robot&#39;s current position and the goal</span>
+<span class="w">    </span><span class="nv">distance</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>math.sqrt<span class="o">(</span>pow<span class="o">(</span>desX<span class="w"> </span>-<span class="w"> </span>x,<span class="w"> </span><span class="m">2</span><span class="o">)</span><span class="w"> </span>+<span class="w"> </span>pow<span class="o">(</span>desY<span class="w"> </span>-<span class="w"> </span>y,<span class="w"> </span><span class="m">2</span><span class="o">))</span>
+
+<span class="w">    </span><span class="c1"># Calculate the robot&#39;s speed (average speed based on velocity components)</span>
+<span class="w">    </span><span class="nv">speed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>math.sqrt<span class="o">(</span>pow<span class="o">(</span>velX,<span class="w"> </span><span class="m">2</span><span class="o">)</span><span class="w"> </span>+<span class="w"> </span>pow<span class="o">(</span>velY,<span class="w"> </span><span class="m">2</span><span class="o">))</span>
+
+<span class="w">    </span><span class="c1"># Print the information</span>
+<span class="w">    </span>print<span class="o">(</span><span class="s2">&quot;The distance from the goal position is: {:.2f}&quot;</span>.format<span class="o">(</span>distance<span class="o">))</span>
+<span class="w">    </span>print<span class="o">(</span><span class="s2">&quot;The robot&#39;s average speed is: {:.2f}&quot;</span>.format<span class="o">(</span>speed<span class="o">))</span>
+<span class="w">    </span>print<span class="o">(</span><span class="s2">&quot;\n&quot;</span><span class="o">)</span>
+
+def<span class="w"> </span>main<span class="o">()</span>:
+<span class="w">    </span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">    Main function that initializes the subscriber, retrieves parameters,</span>
+<span class="s2">    and sets the frequency at which information is printed.</span>
+<span class="s2">    &quot;&quot;&quot;</span>
+
+<span class="w">    </span><span class="c1"># Initialize NodeC</span>
+<span class="w">    </span>rospy.init_node<span class="o">(</span><span class="s2">&quot;NodeC&quot;</span><span class="o">)</span>
+
+<span class="w">    </span><span class="c1"># Get frequency from parameters (with a default value if not set)</span>
+<span class="w">    </span><span class="nv">freq</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.get_param<span class="o">(</span><span class="s2">&quot;freq&quot;</span>,<span class="w"> </span><span class="m">1</span><span class="o">)</span><span class="w">  </span><span class="c1"># Default value: 1 Hz</span>
+
+<span class="w">    </span><span class="c1"># Set the publishing rate</span>
+<span class="w">    </span><span class="nv">rate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.Rate<span class="o">(</span>freq<span class="o">)</span>
+
+<span class="w">    </span><span class="c1"># Subscribe to the /robot_info topic to get the robot&#39;s information</span>
+<span class="w">    </span>rospy.Subscriber<span class="o">(</span><span class="s2">&quot;/robot_info&quot;</span>,<span class="w"> </span>RobotPosition,<span class="w"> </span>callback<span class="o">)</span>
+
+<span class="w">    </span><span class="c1"># Keep the node running, printing info at the specified frequency</span>
+<span class="w">    </span><span class="k">while</span><span class="w"> </span>not<span class="w"> </span>rospy.is_shutdown<span class="o">()</span>:
+<span class="w">        </span>rate.sleep<span class="o">()</span><span class="w">  </span><span class="c1"># Control the frequency at which the callback is called</span>
+
+<span class="w">    </span><span class="c1"># Keep the node running indefinitely</span>
+<span class="w">    </span>rospy.spin<span class="o">()</span>
+<span class="w">    </span><span class="nv">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>print<span class="o">(</span>f<span class="s1">&#39;everything is working&#39;</span><span class="o">)</span>
+
+<span class="k">if</span><span class="w"> </span><span class="nv">__name__</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s2">&quot;__main__&quot;</span>:
+<span class="w">    </span>main<span class="o">()</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">Assignment_documentation</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules.html">Robot Simulation Assignment Modules</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Nodes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#node-a-action-client">Node A - Action Client</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#node-b-position-monitor">Node B - Position Monitor</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="services.html">Services</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simulation.html">Simulation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="modules.html" title="previous chapter">Robot Simulation Assignment Modules</a></li>
+      <li>Next: <a href="services.html" title="next chapter">Services</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Hafiz Abdul Hayee.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/nodes.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
