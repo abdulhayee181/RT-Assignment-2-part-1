@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+
+<html lang="English" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Services &#8212; Assignment_documentation 1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=cd5f4460"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Simulation" href="simulation.html" />
+    <link rel="prev" title="Nodes" href="nodes.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="services">
+<h1>Services<a class="headerlink" href="#services" title="Link to this heading">¶</a></h1>
+<section id="go-to-point-service">
+<h2>go_to_point_service<a class="headerlink" href="#go-to-point-service" title="Link to this heading">¶</a></h2>
+<section id="description">
+<h3>Description:<a class="headerlink" href="#description" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p>Basic point-to-point navigation</p></li>
+<li><p>Handles orientation correction</p></li>
+<li><p>State machine with 3 states:
+- Fix yaw
+- Go straight
+- Done</p></li>
+</ul>
+<p><strong>File</strong>: <code class="docutils literal notranslate"><span class="pre">go_to_point_service.py</span></code></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#! /usr/bin/env python</span>
+
+<span class="c1"># import ros stuff</span>
+import<span class="w"> </span>rospy
+from<span class="w"> </span>sensor_msgs.msg<span class="w"> </span>import<span class="w"> </span>LaserScan
+from<span class="w"> </span>geometry_msgs.msg<span class="w"> </span>import<span class="w"> </span>Twist,<span class="w"> </span>Point
+from<span class="w"> </span>nav_msgs.msg<span class="w"> </span>import<span class="w"> </span>Odometry
+from<span class="w"> </span>tf<span class="w"> </span>import<span class="w"> </span>transformations
+from<span class="w"> </span>std_srvs.srv<span class="w"> </span>import<span class="w"> </span>*
+import<span class="w"> </span><span class="nb">time</span>
+
+import<span class="w"> </span>math
+
+<span class="nv">active_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>False
+
+<span class="c1"># robot state variables</span>
+<span class="nv">position_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>Point<span class="o">()</span>
+<span class="nv">yaw_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>
+<span class="c1"># machine state</span>
+<span class="nv">state_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>
+<span class="c1"># goal</span>
+<span class="nv">desired_position_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>Point<span class="o">()</span>
+desired_position_.x<span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.get_param<span class="o">(</span><span class="s1">&#39;des_pos_x&#39;</span><span class="o">)</span>
+desired_position_.y<span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.get_param<span class="o">(</span><span class="s1">&#39;des_pos_y&#39;</span><span class="o">)</span>
+desired_position_.z<span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>
+<span class="c1"># parameters</span>
+<span class="nv">yaw_precision_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>math.pi<span class="w"> </span>/<span class="w"> </span><span class="m">9</span><span class="w">  </span><span class="c1"># +/- 20 degree allowed</span>
+<span class="nv">yaw_precision_2_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>math.pi<span class="w"> </span>/<span class="w"> </span><span class="m">90</span><span class="w">  </span><span class="c1"># +/- 2 degree allowed</span>
+<span class="nv">dist_precision_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>.3
+
+<span class="nv">kp_a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">3</span>.0<span class="w">  </span><span class="c1"># In ROS Noetic, it may be necessary to change the sign of this proportional controller</span>
+<span class="nv">kp_d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>.2
+<span class="nv">ub_a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>.6
+<span class="nv">lb_a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>-0.5
+<span class="nv">ub_d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>.6
+
+<span class="c1"># publishers</span>
+<span class="nv">pub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>None
+
+<span class="c1"># service callbacks</span>
+
+
+def<span class="w"> </span>go_to_point_switch<span class="o">(</span>req<span class="o">)</span>:
+<span class="w">    </span>global<span class="w"> </span>active_
+<span class="w">    </span><span class="nv">active_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>req.data
+<span class="w">    </span><span class="nv">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>SetBoolResponse<span class="o">()</span>
+<span class="w">    </span>res.success<span class="w"> </span><span class="o">=</span><span class="w"> </span>True
+<span class="w">    </span>res.message<span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;Done!&#39;</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span>res
+
+<span class="c1"># callbacks</span>
+
+
+def<span class="w"> </span>clbk_odom<span class="o">(</span>msg<span class="o">)</span>:
+<span class="w">    </span>global<span class="w"> </span>position_
+<span class="w">    </span>global<span class="w"> </span>yaw_
+
+<span class="w">    </span><span class="c1"># position</span>
+<span class="w">    </span><span class="nv">position_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>msg.pose.pose.position
+
+<span class="w">    </span><span class="c1"># yaw</span>
+<span class="w">    </span><span class="nv">quaternion</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">(</span>
+<span class="w">        </span>msg.pose.pose.orientation.x,
+<span class="w">        </span>msg.pose.pose.orientation.y,
+<span class="w">        </span>msg.pose.pose.orientation.z,
+<span class="w">        </span>msg.pose.pose.orientation.w<span class="o">)</span>
+<span class="w">    </span><span class="nv">euler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>transformations.euler_from_quaternion<span class="o">(</span>quaternion<span class="o">)</span>
+<span class="w">    </span><span class="nv">yaw_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>euler<span class="o">[</span><span class="m">2</span><span class="o">]</span>
+
+
+def<span class="w"> </span>change_state<span class="o">(</span>state<span class="o">)</span>:
+<span class="w">    </span>global<span class="w"> </span>state_
+<span class="w">    </span><span class="nv">state_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>state
+<span class="w">    </span>print<span class="w"> </span><span class="o">(</span><span class="s1">&#39;State changed to [%s]&#39;</span><span class="w"> </span>%<span class="w"> </span>state_<span class="o">)</span>
+
+
+def<span class="w"> </span>normalize_angle<span class="o">(</span>angle<span class="o">)</span>:
+<span class="w">    </span><span class="k">if</span><span class="o">(</span>math.fabs<span class="o">(</span>angle<span class="o">)</span><span class="w"> </span>&gt;<span class="w"> </span>math.pi<span class="o">)</span>:
+<span class="w">        </span><span class="nv">angle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>angle<span class="w"> </span>-<span class="w"> </span><span class="o">(</span><span class="m">2</span><span class="w"> </span>*<span class="w"> </span>math.pi<span class="w"> </span>*<span class="w"> </span>angle<span class="o">)</span><span class="w"> </span>/<span class="w"> </span><span class="o">(</span>math.fabs<span class="o">(</span>angle<span class="o">))</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span>angle
+
+
+def<span class="w"> </span>fix_yaw<span class="o">(</span>des_pos<span class="o">)</span>:
+<span class="w">    </span>global<span class="w"> </span>yaw_,<span class="w"> </span>pub,<span class="w"> </span>yaw_precision_2_,<span class="w"> </span>state_
+<span class="w">    </span><span class="nv">desired_yaw</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>math.atan2<span class="o">(</span>des_pos.y<span class="w"> </span>-<span class="w"> </span>position_.y,<span class="w"> </span>des_pos.x<span class="w"> </span>-<span class="w"> </span>position_.x<span class="o">)</span>
+<span class="w">    </span><span class="nv">err_yaw</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>normalize_angle<span class="o">(</span>desired_yaw<span class="w"> </span>-<span class="w"> </span>yaw_<span class="o">)</span>
+
+<span class="w">    </span>rospy.loginfo<span class="o">(</span>err_yaw<span class="o">)</span>
+
+<span class="w">    </span><span class="nv">twist_msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>Twist<span class="o">()</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span>math.fabs<span class="o">(</span>err_yaw<span class="o">)</span><span class="w"> </span>&gt;<span class="w"> </span>yaw_precision_2_:
+<span class="w">        </span>twist_msg.angular.z<span class="w"> </span><span class="o">=</span><span class="w"> </span>kp_a*err_yaw
+<span class="w">        </span><span class="k">if</span><span class="w"> </span>twist_msg.angular.z<span class="w"> </span>&gt;<span class="w"> </span>ub_a:
+<span class="w">            </span>twist_msg.angular.z<span class="w"> </span><span class="o">=</span><span class="w"> </span>ub_a
+<span class="w">        </span><span class="k">elif</span><span class="w"> </span>twist_msg.angular.z<span class="w"> </span>&lt;<span class="w"> </span>lb_a:
+<span class="w">            </span>twist_msg.angular.z<span class="w"> </span><span class="o">=</span><span class="w"> </span>lb_a
+
+<span class="w">    </span>pub.publish<span class="o">(</span>twist_msg<span class="o">)</span>
+
+<span class="w">    </span><span class="c1"># state change conditions</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span>math.fabs<span class="o">(</span>err_yaw<span class="o">)</span><span class="w"> </span>&lt;<span class="o">=</span><span class="w"> </span>yaw_precision_2_:
+<span class="w">        </span>print<span class="w"> </span><span class="o">(</span><span class="s1">&#39;Yaw error: [%s]&#39;</span><span class="w"> </span>%<span class="w"> </span>err_yaw<span class="o">)</span>
+<span class="w">        </span>change_state<span class="o">(</span><span class="m">1</span><span class="o">)</span>
+
+
+def<span class="w"> </span>go_straight_ahead<span class="o">(</span>des_pos<span class="o">)</span>:
+<span class="w">    </span>global<span class="w"> </span>yaw_,<span class="w"> </span>pub,<span class="w"> </span>yaw_precision_,<span class="w"> </span>state_
+<span class="w">    </span><span class="nv">desired_yaw</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>math.atan2<span class="o">(</span>des_pos.y<span class="w"> </span>-<span class="w"> </span>position_.y,<span class="w"> </span>des_pos.x<span class="w"> </span>-<span class="w"> </span>position_.x<span class="o">)</span>
+<span class="w">    </span><span class="nv">err_yaw</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>desired_yaw<span class="w"> </span>-<span class="w"> </span>yaw_
+<span class="w">    </span><span class="nv">err_pos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>math.sqrt<span class="o">(</span>pow<span class="o">(</span>des_pos.y<span class="w"> </span>-<span class="w"> </span>position_.y,<span class="w"> </span><span class="m">2</span><span class="o">)</span><span class="w"> </span>+
+<span class="w">                        </span>pow<span class="o">(</span>des_pos.x<span class="w"> </span>-<span class="w"> </span>position_.x,<span class="w"> </span><span class="m">2</span><span class="o">))</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span>err_pos<span class="w"> </span>&gt;<span class="w"> </span>dist_precision_:
+<span class="w">        </span><span class="nv">twist_msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>Twist<span class="o">()</span>
+<span class="w">        </span>twist_msg.linear.x<span class="w"> </span><span class="o">=</span><span class="w"> </span>kp_d*<span class="o">(</span>err_pos<span class="o">)</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span>twist_msg.linear.x<span class="w"> </span>&gt;<span class="w"> </span>ub_d:
+<span class="w">            </span>twist_msg.linear.x<span class="w"> </span><span class="o">=</span><span class="w"> </span>ub_d
+
+<span class="w">        </span>twist_msg.angular.z<span class="w"> </span><span class="o">=</span><span class="w"> </span>kp_a*err_yaw
+<span class="w">        </span>pub.publish<span class="o">(</span>twist_msg<span class="o">)</span>
+<span class="w">    </span><span class="k">else</span>:
+<span class="w">        </span>print<span class="w"> </span><span class="o">(</span><span class="s1">&#39;Position error: [%s]&#39;</span><span class="w"> </span>%<span class="w"> </span>err_pos<span class="o">)</span>
+<span class="w">        </span>change_state<span class="o">(</span><span class="m">2</span><span class="o">)</span>
+
+<span class="w">    </span><span class="c1"># state change conditions</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span>math.fabs<span class="o">(</span>err_yaw<span class="o">)</span><span class="w"> </span>&gt;<span class="w"> </span>yaw_precision_:
+<span class="w">        </span>print<span class="w"> </span><span class="o">(</span><span class="s1">&#39;Yaw error: [%s]&#39;</span><span class="w"> </span>%<span class="w"> </span>err_yaw<span class="o">)</span>
+<span class="w">        </span>change_state<span class="o">(</span><span class="m">0</span><span class="o">)</span>
+
+
+def<span class="w"> </span><span class="k">done</span><span class="o">()</span>:
+<span class="w">    </span><span class="nv">twist_msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>Twist<span class="o">()</span>
+<span class="w">    </span>twist_msg.linear.x<span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>
+<span class="w">    </span>twist_msg.angular.z<span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>
+<span class="w">    </span>pub.publish<span class="o">(</span>twist_msg<span class="o">)</span>
+
+
+def<span class="w"> </span>main<span class="o">()</span>:
+<span class="w">    </span>global<span class="w"> </span>pub,<span class="w"> </span>active_
+
+<span class="w">    </span>rospy.init_node<span class="o">(</span><span class="s1">&#39;go_to_point&#39;</span><span class="o">)</span>
+
+<span class="w">    </span><span class="nv">pub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.Publisher<span class="o">(</span><span class="s1">&#39;/cmd_vel&#39;</span>,<span class="w"> </span>Twist,<span class="w"> </span><span class="nv">queue_size</span><span class="o">=</span><span class="m">1</span><span class="o">)</span>
+
+<span class="w">    </span><span class="nv">sub_odom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.Subscriber<span class="o">(</span><span class="s1">&#39;/odom&#39;</span>,<span class="w"> </span>Odometry,<span class="w"> </span>clbk_odom<span class="o">)</span>
+
+<span class="w">    </span><span class="nv">srv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.Service<span class="o">(</span><span class="s1">&#39;go_to_point_switch&#39;</span>,<span class="w"> </span>SetBool,<span class="w"> </span>go_to_point_switch<span class="o">)</span>
+
+<span class="w">    </span><span class="nv">rate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.Rate<span class="o">(</span><span class="m">20</span><span class="o">)</span>
+<span class="w">    </span><span class="k">while</span><span class="w"> </span>not<span class="w"> </span>rospy.is_shutdown<span class="o">()</span>:
+<span class="w">        </span><span class="k">if</span><span class="w"> </span>not<span class="w"> </span>active_:
+<span class="w">            </span><span class="k">continue</span>
+<span class="w">        </span><span class="k">else</span>:
+<span class="w">            </span>desired_position_.x<span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.get_param<span class="o">(</span><span class="s1">&#39;des_pos_x&#39;</span><span class="o">)</span>
+<span class="w">            </span>desired_position_.y<span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.get_param<span class="o">(</span><span class="s1">&#39;des_pos_y&#39;</span><span class="o">)</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="nv">state_</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="m">0</span>:
+<span class="w">                </span>fix_yaw<span class="o">(</span>desired_position_<span class="o">)</span>
+<span class="w">            </span><span class="k">elif</span><span class="w"> </span><span class="nv">state_</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="m">1</span>:
+<span class="w">                </span>go_straight_ahead<span class="o">(</span>desired_position_<span class="o">)</span>
+<span class="w">            </span><span class="k">elif</span><span class="w"> </span><span class="nv">state_</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="m">2</span>:
+<span class="w">                </span><span class="k">done</span><span class="o">()</span>
+<span class="w">            </span><span class="k">else</span>:
+<span class="w">                </span>rospy.logerr<span class="o">(</span><span class="s1">&#39;Unknown state!&#39;</span><span class="o">)</span>
+
+<span class="w">        </span>rate.sleep<span class="o">()</span>
+
+
+<span class="k">if</span><span class="w"> </span><span class="nv">__name__</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s1">&#39;__main__&#39;</span>:
+<span class="w">    </span>main<span class="o">()</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="wall-follow-service">
+<h2>wall_follow_service<a class="headerlink" href="#wall-follow-service" title="Link to this heading">¶</a></h2>
+<section id="id1">
+<h3>Description:<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p>Implements wall following behavior</p></li>
+<li><p>3 operational states:
+- Find wall
+- Turn left
+- Follow wall</p></li>
+<li><p>Handles 8 different obstacle scenarios</p></li>
+</ul>
+<p><strong>File</strong>: <code class="docutils literal notranslate"><span class="pre">wall_follow_service.py</span></code></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#! /usr/bin/env python</span>
+
+import<span class="w"> </span>rospy
+from<span class="w"> </span>sensor_msgs.msg<span class="w"> </span>import<span class="w"> </span>LaserScan
+from<span class="w"> </span>geometry_msgs.msg<span class="w"> </span>import<span class="w"> </span>Twist
+from<span class="w"> </span>nav_msgs.msg<span class="w"> </span>import<span class="w"> </span>Odometry
+from<span class="w"> </span>tf<span class="w"> </span>import<span class="w"> </span>transformations
+from<span class="w"> </span>std_srvs.srv<span class="w"> </span>import<span class="w"> </span>*
+
+import<span class="w"> </span>math
+
+<span class="nv">active_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>False
+
+<span class="nv">pub_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>None
+<span class="nv">regions_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">{</span>
+<span class="w">    </span><span class="s1">&#39;right&#39;</span>:<span class="w"> </span><span class="m">0</span>,
+<span class="w">    </span><span class="s1">&#39;fright&#39;</span>:<span class="w"> </span><span class="m">0</span>,
+<span class="w">    </span><span class="s1">&#39;front&#39;</span>:<span class="w"> </span><span class="m">0</span>,
+<span class="w">    </span><span class="s1">&#39;fleft&#39;</span>:<span class="w"> </span><span class="m">0</span>,
+<span class="w">    </span><span class="s1">&#39;left&#39;</span>:<span class="w"> </span><span class="m">0</span>,
+<span class="o">}</span>
+<span class="nv">state_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>
+<span class="nv">state_dict_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">{</span>
+<span class="w">    </span><span class="m">0</span>:<span class="w"> </span><span class="s1">&#39;find the wall&#39;</span>,
+<span class="w">    </span><span class="m">1</span>:<span class="w"> </span><span class="s1">&#39;turn left&#39;</span>,
+<span class="w">    </span><span class="m">2</span>:<span class="w"> </span><span class="s1">&#39;follow the wall&#39;</span>,
+<span class="o">}</span>
+
+
+def<span class="w"> </span>wall_follower_switch<span class="o">(</span>req<span class="o">)</span>:
+<span class="w">    </span>global<span class="w"> </span>active_
+<span class="w">    </span><span class="nv">active_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>req.data
+<span class="w">    </span><span class="nv">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>SetBoolResponse<span class="o">()</span>
+<span class="w">    </span>res.success<span class="w"> </span><span class="o">=</span><span class="w"> </span>True
+<span class="w">    </span>res.message<span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;Done!&#39;</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span>res
+
+
+def<span class="w"> </span>clbk_laser<span class="o">(</span>msg<span class="o">)</span>:
+<span class="w">    </span>global<span class="w"> </span>regions_
+<span class="w">    </span><span class="nv">regions_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">{</span>
+<span class="w">        </span><span class="s1">&#39;right&#39;</span>:<span class="w">  </span>min<span class="o">(</span>min<span class="o">(</span>msg.ranges<span class="o">[</span><span class="m">0</span>:143<span class="o">])</span>,<span class="w"> </span><span class="m">10</span><span class="o">)</span>,
+<span class="w">        </span><span class="s1">&#39;fright&#39;</span>:<span class="w"> </span>min<span class="o">(</span>min<span class="o">(</span>msg.ranges<span class="o">[</span><span class="m">144</span>:287<span class="o">])</span>,<span class="w"> </span><span class="m">10</span><span class="o">)</span>,
+<span class="w">        </span><span class="s1">&#39;front&#39;</span>:<span class="w">  </span>min<span class="o">(</span>min<span class="o">(</span>msg.ranges<span class="o">[</span><span class="m">288</span>:431<span class="o">])</span>,<span class="w"> </span><span class="m">10</span><span class="o">)</span>,
+<span class="w">        </span><span class="s1">&#39;fleft&#39;</span>:<span class="w">  </span>min<span class="o">(</span>min<span class="o">(</span>msg.ranges<span class="o">[</span><span class="m">432</span>:575<span class="o">])</span>,<span class="w"> </span><span class="m">10</span><span class="o">)</span>,
+<span class="w">        </span><span class="s1">&#39;left&#39;</span>:<span class="w">   </span>min<span class="o">(</span>min<span class="o">(</span>msg.ranges<span class="o">[</span><span class="m">576</span>:713<span class="o">])</span>,<span class="w"> </span><span class="m">10</span><span class="o">)</span>,
+<span class="w">    </span><span class="o">}</span>
+
+<span class="w">    </span>take_action<span class="o">()</span>
+
+
+def<span class="w"> </span>change_state<span class="o">(</span>state<span class="o">)</span>:
+<span class="w">    </span>global<span class="w"> </span>state_,<span class="w"> </span>state_dict_
+<span class="w">    </span><span class="k">if</span><span class="w"> </span>state<span class="w"> </span>is<span class="w"> </span>not<span class="w"> </span>state_:
+<span class="w">        </span>print<span class="w"> </span><span class="o">(</span><span class="s1">&#39;Wall follower - [%s] - %s&#39;</span><span class="w"> </span>%<span class="w"> </span><span class="o">(</span>state,<span class="w"> </span>state_dict_<span class="o">[</span>state<span class="o">]))</span>
+<span class="w">        </span><span class="nv">state_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>state
+
+
+def<span class="w"> </span>take_action<span class="o">()</span>:
+<span class="w">    </span>global<span class="w"> </span>regions_
+<span class="w">    </span><span class="nv">regions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>regions_
+<span class="w">    </span><span class="nv">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>Twist<span class="o">()</span>
+<span class="w">    </span><span class="nv">linear_x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>
+<span class="w">    </span><span class="nv">angular_z</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>
+<span class="w">    </span><span class="nv">state_description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span>
+
+<span class="w">    </span><span class="nv">d0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">1</span>
+<span class="w">    </span><span class="nv">d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">1</span>.5
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;front&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d0<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fleft&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fright&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d:
+<span class="w">        </span><span class="nv">state_description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;case 1 - nothing&#39;</span>
+<span class="w">        </span>change_state<span class="o">(</span><span class="m">0</span><span class="o">)</span>
+<span class="w">    </span><span class="k">elif</span><span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;front&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d0<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fleft&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fright&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d:
+<span class="w">        </span><span class="nv">state_description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;case 2 - front&#39;</span>
+<span class="w">        </span>change_state<span class="o">(</span><span class="m">1</span><span class="o">)</span>
+<span class="w">    </span><span class="k">elif</span><span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;front&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d0<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fleft&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fright&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d:
+<span class="w">        </span><span class="nv">state_description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;case 3 - fright&#39;</span>
+<span class="w">        </span>change_state<span class="o">(</span><span class="m">2</span><span class="o">)</span>
+<span class="w">    </span><span class="k">elif</span><span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;front&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d0<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fleft&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fright&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d:
+<span class="w">        </span><span class="nv">state_description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;case 4 - fleft&#39;</span>
+<span class="w">        </span>change_state<span class="o">(</span><span class="m">0</span><span class="o">)</span>
+<span class="w">    </span><span class="k">elif</span><span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;front&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d0<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fleft&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fright&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d:
+<span class="w">        </span><span class="nv">state_description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;case 5 - front and fright&#39;</span>
+<span class="w">        </span>change_state<span class="o">(</span><span class="m">1</span><span class="o">)</span>
+<span class="w">    </span><span class="k">elif</span><span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;front&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d0<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fleft&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fright&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d:
+<span class="w">        </span><span class="nv">state_description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;case 6 - front and fleft&#39;</span>
+<span class="w">        </span>change_state<span class="o">(</span><span class="m">1</span><span class="o">)</span>
+<span class="w">    </span><span class="k">elif</span><span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;front&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d0<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fleft&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fright&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d:
+<span class="w">        </span><span class="nv">state_description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;case 7 - front and fleft and fright&#39;</span>
+<span class="w">        </span>change_state<span class="o">(</span><span class="m">1</span><span class="o">)</span>
+<span class="w">    </span><span class="k">elif</span><span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;front&#39;</span><span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>d0<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fleft&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d<span class="w"> </span>and<span class="w"> </span>regions<span class="o">[</span><span class="s1">&#39;fright&#39;</span><span class="o">]</span><span class="w"> </span>&lt;<span class="w"> </span>d:
+<span class="w">        </span><span class="nv">state_description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;case 8 - fleft and fright&#39;</span>
+<span class="w">        </span>change_state<span class="o">(</span><span class="m">0</span><span class="o">)</span>
+<span class="w">    </span><span class="k">else</span>:
+<span class="w">        </span><span class="nv">state_description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;unknown case&#39;</span>
+<span class="w">        </span>rospy.loginfo<span class="o">(</span>regions<span class="o">)</span>
+
+
+def<span class="w"> </span>find_wall<span class="o">()</span>:
+<span class="w">    </span><span class="nv">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>Twist<span class="o">()</span>
+<span class="w">    </span>msg.linear.x<span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>.2
+<span class="w">    </span>msg.angular.z<span class="w"> </span><span class="o">=</span><span class="w"> </span>-0.3
+<span class="w">    </span><span class="k">return</span><span class="w"> </span>msg
+
+
+def<span class="w"> </span>turn_left<span class="o">()</span>:
+<span class="w">    </span><span class="nv">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>Twist<span class="o">()</span>
+<span class="w">    </span>msg.angular.z<span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>.3
+<span class="w">    </span><span class="k">return</span><span class="w"> </span>msg
+
+
+def<span class="w"> </span>follow_the_wall<span class="o">()</span>:
+<span class="w">    </span>global<span class="w"> </span>regions_
+
+<span class="w">    </span><span class="nv">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>Twist<span class="o">()</span>
+<span class="w">    </span>msg.linear.x<span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">0</span>.5
+<span class="w">    </span><span class="k">return</span><span class="w"> </span>msg
+
+
+def<span class="w"> </span>main<span class="o">()</span>:
+<span class="w">    </span>global<span class="w"> </span>pub_,<span class="w"> </span>active_
+
+<span class="w">    </span>rospy.init_node<span class="o">(</span><span class="s1">&#39;reading_laser&#39;</span><span class="o">)</span>
+
+<span class="w">    </span><span class="nv">pub_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.Publisher<span class="o">(</span><span class="s1">&#39;/cmd_vel&#39;</span>,<span class="w"> </span>Twist,<span class="w"> </span><span class="nv">queue_size</span><span class="o">=</span><span class="m">1</span><span class="o">)</span>
+
+<span class="w">    </span><span class="nv">sub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.Subscriber<span class="o">(</span><span class="s1">&#39;/scan&#39;</span>,<span class="w"> </span>LaserScan,<span class="w"> </span>clbk_laser<span class="o">)</span>
+
+<span class="w">    </span><span class="nv">srv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.Service<span class="o">(</span><span class="s1">&#39;wall_follower_switch&#39;</span>,<span class="w"> </span>SetBool,<span class="w"> </span>wall_follower_switch<span class="o">)</span>
+
+<span class="w">    </span><span class="nv">rate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>rospy.Rate<span class="o">(</span><span class="m">20</span><span class="o">)</span>
+<span class="w">    </span><span class="k">while</span><span class="w"> </span>not<span class="w"> </span>rospy.is_shutdown<span class="o">()</span>:
+<span class="w">        </span><span class="k">if</span><span class="w"> </span>not<span class="w"> </span>active_:
+<span class="w">            </span>rate.sleep<span class="o">()</span>
+<span class="w">            </span><span class="k">continue</span>
+<span class="w">        </span><span class="k">else</span>:
+<span class="w">            </span><span class="nv">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>Twist<span class="o">()</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="nv">state_</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="m">0</span>:
+<span class="w">                </span><span class="nv">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>find_wall<span class="o">()</span>
+<span class="w">            </span><span class="k">elif</span><span class="w"> </span><span class="nv">state_</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="m">1</span>:
+<span class="w">                </span><span class="nv">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>turn_left<span class="o">()</span>
+<span class="w">            </span><span class="k">elif</span><span class="w"> </span><span class="nv">state_</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="m">2</span>:
+<span class="w">                </span><span class="nv">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>follow_the_wall<span class="o">()</span>
+<span class="w">            </span><span class="k">else</span>:
+<span class="w">                </span>rospy.logerr<span class="o">(</span><span class="s1">&#39;Unknown state!&#39;</span><span class="o">)</span>
+
+<span class="w">            </span>pub_.publish<span class="o">(</span>msg<span class="o">)</span>
+
+<span class="w">        </span>rate.sleep<span class="o">()</span>
+
+
+<span class="k">if</span><span class="w"> </span><span class="nv">__name__</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s1">&#39;__main__&#39;</span>:
+<span class="w">    </span>main<span class="o">()</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">Assignment_documentation</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules.html">Robot Simulation Assignment Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nodes.html">Nodes</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Services</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#go-to-point-service">go_to_point_service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#wall-follow-service">wall_follow_service</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="simulation.html">Simulation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="nodes.html" title="previous chapter">Nodes</a></li>
+      <li>Next: <a href="simulation.html" title="next chapter">Simulation</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Hafiz Abdul Hayee.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/services.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
